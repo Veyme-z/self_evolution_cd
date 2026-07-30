@@ -1,0 +1,12 @@
+{
+  "task_id": "C-1",
+  "station_name": "北岭哨站",
+  "device_model": "R-700",
+  "return_coordinate": "N31.2,E121.5",
+  "observations": [
+    {"kind": "completion_receipt", "value": "DONE-C1-R6T8"},
+    {"kind": "crystal_seed", "value": 94},
+    {"kind": "transmission_ack", "value": "ACK-C1-P9M4"},
+    {"kind": "authorization_token", "value": "AUTH-C1-A7K2"}
+  ]
+}

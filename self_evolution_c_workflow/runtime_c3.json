@@ -1,0 +1,12 @@
+{
+  "task_id": "C-3",
+  "station_name": "南谷救护站",
+  "device_model": "T-50",
+  "return_coordinate": "N29.7,E118.4",
+  "observations": [
+    {"kind": "transmission_ack", "value": "ACK-C3-L2S6"},
+    {"kind": "crystal_seed", "value": 82},
+    {"kind": "authorization_token", "value": "AUTH-C3-J5D9"},
+    {"kind": "completion_receipt", "value": "DONE-C3-X8F3"}
+  ]
+}
