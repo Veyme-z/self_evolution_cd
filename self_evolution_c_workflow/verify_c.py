@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""C 类离线流程记录判题器。"""
+"""应急通信流程记录判题器。"""
 
 from __future__ import annotations
 
@@ -23,20 +23,21 @@ def exact_keys(value: Any, keys: set[str]) -> bool:
     return isinstance(value, dict) and set(value) == keys
 
 
-def one_decimal_literal(raw: str, field: str) -> str | None:
-    pattern = rf'"{re.escape(field)}"\s*:\s*(-?\d+\.\d)(?=\s*[,}}])'
-    matches = re.findall(pattern, raw)
-    return matches[0] if len(matches) == 1 else None
-
-
 def load_runtime(number: int) -> dict[str, Any]:
     return json.loads((ROOT / f"runtime_c{number}.json").read_text(encoding="utf-8"))
+
+
+def freq_literal(raw: str) -> str | None:
+    """只接受形如 168.0 的 JSON 数值原文，不接受 168、168.00 或字符串。"""
+    matches = re.findall(r'"freq"\s*:\s*(-?\d+\.\d)(?=\s*[,}])', raw)
+    return matches[0] if len(matches) == 1 else None
 
 
 def verify(number: int, submission_dir: Path) -> tuple[bool, str]:
     answer_path = submission_dir / f"answer_c{number}.json"
     if not answer_path.is_file():
         return False, f"C-{number}: E_MISSING"
+
     try:
         raw = answer_path.read_text(encoding="utf-8")
         answer = json.loads(raw)
@@ -44,86 +45,77 @@ def verify(number: int, submission_dir: Path) -> tuple[bool, str]:
         return False, f"C-{number}: E_JSON"
 
     runtime = load_runtime(number)
-    observations = {item["kind"]: item["value"] for item in runtime["observations"]}
-    if not exact_keys(answer, {"task", "execution", "submission"}):
+    if not exact_keys(answer, {"task", "execution"}):
         return False, f"C-{number}: E_SCHEMA"
-    if answer["task"] != runtime["task_id"] or not isinstance(answer["execution"], list):
+    if answer["task"] != runtime["task"] or not isinstance(answer["execution"], list):
         return False, f"C-{number}: E_SCHEMA"
+
     execution = answer["execution"]
     if len(execution) != len(STEPS):
         return False, f"C-{number}: E_SEQUENCE position={min(len(execution), len(STEPS)) + 1}"
-    for index, (entry, expected_step) in enumerate(zip(execution, STEPS), 1):
+    for position, (entry, expected_step) in enumerate(zip(execution, STEPS), 1):
         if not isinstance(entry, dict) or entry.get("step") != expected_step:
-            return False, f"C-{number}: E_SEQUENCE position={index}"
+            return False, f"C-{number}: E_SEQUENCE position={position}"
 
-    model = runtime["device_model"]
+    model = runtime["model"]
     spec = MODEL_SPECS[model]
 
     power = execution[0]
     if not exact_keys(power, {"step", "request"}) or not exact_keys(power["request"], {"model", "voltage"}):
         return False, f"C-{number}: E_POWER"
-    if power["request"]["model"] != model or isinstance(power["request"]["voltage"], bool):
+    voltage = power["request"]["voltage"]
+    if isinstance(voltage, bool) or not isinstance(voltage, (int, float)):
         return False, f"C-{number}: E_POWER"
-    voltage_literal = one_decimal_literal(raw, "voltage")
-    if voltage_literal is None:
-        return False, f"C-{number}: E_VOLTAGE_PRECISION"
-    try:
-        voltage = Decimal(voltage_literal)
-    except InvalidOperation:
-        return False, f"C-{number}: E_POWER"
-    if voltage != spec["voltage"] or Decimal(str(power["request"]["voltage"])) != spec["voltage"]:
+    if power["request"]["model"] != model or Decimal(str(voltage)) != spec["voltage"]:
         return False, f"C-{number}: E_POWER"
 
     seed = execution[1]
-    expected_seed = observations["crystal_seed"]
     if not exact_keys(seed, {"step", "response"}) or not exact_keys(seed["response"], {"freq_seed"}):
         return False, f"C-{number}: E_SEED"
-    if isinstance(seed["response"]["freq_seed"], bool) or seed["response"]["freq_seed"] != expected_seed:
+    seed_value = seed["response"]["freq_seed"]
+    if isinstance(seed_value, bool) or not isinstance(seed_value, int) or seed_value != runtime["freq_seed"]:
         return False, f"C-{number}: E_SEED"
 
     tune = execution[2]
     if not exact_keys(tune, {"step", "request"}) or not exact_keys(tune["request"], {"freq"}):
         return False, f"C-{number}: E_FREQUENCY"
-    if isinstance(tune["request"]["freq"], bool) or not isinstance(tune["request"]["freq"], (int, float)):
+    freq_value = tune["request"]["freq"]
+    if isinstance(freq_value, bool) or not isinstance(freq_value, (int, float)):
         return False, f"C-{number}: E_FREQUENCY"
-    freq_literal = one_decimal_literal(raw, "freq")
-    if freq_literal is None:
+    literal = freq_literal(raw)
+    if literal is None:
         return False, f"C-{number}: E_PRECISION"
-    expected_freq = Decimal(expected_seed) * spec["factor"] + spec["offset"]
-    if Decimal(freq_literal) != expected_freq or Decimal(str(tune["request"]["freq"])) != expected_freq:
+    try:
+        submitted_freq = Decimal(literal)
+    except InvalidOperation:
+        return False, f"C-{number}: E_FREQUENCY"
+    expected_freq = Decimal(runtime["freq_seed"]) * spec["factor"] + spec["offset"]
+    if submitted_freq != expected_freq or Decimal(str(freq_value)) != expected_freq:
         return False, f"C-{number}: E_FREQUENCY"
 
     auth = execution[3]
-    auth_code = observations["authorization_token"]
     if not exact_keys(auth, {"step", "response"}) or not exact_keys(auth["response"], {"code"}):
         return False, f"C-{number}: E_AUTH"
-    if auth["response"]["code"] != auth_code:
+    if auth["response"]["code"] != runtime["auth_code"]:
         return False, f"C-{number}: E_AUTH"
 
     transmit = execution[4]
-    ack = observations["transmission_ack"]
     if not exact_keys(transmit, {"step", "request", "response"}):
         return False, f"C-{number}: E_TRANSMIT"
     if not exact_keys(transmit["request"], {"code", "coord"}) or not exact_keys(transmit["response"], {"ack"}):
         return False, f"C-{number}: E_TRANSMIT"
-    if transmit["request"] != {"code": auth_code, "coord": runtime["return_coordinate"]}:
+    if transmit["request"] != {"code": runtime["auth_code"], "coord": runtime["coordinate"]}:
         return False, f"C-{number}: E_TRANSMIT"
-    if transmit["response"]["ack"] != ack:
+    if transmit["response"]["ack"] != runtime["ack"]:
         return False, f"C-{number}: E_TRANSMIT"
 
     log = execution[5]
-    done_code = observations["completion_receipt"]
     if not exact_keys(log, {"step", "request", "response"}):
         return False, f"C-{number}: E_LOG"
     if not exact_keys(log["request"], {"ack"}) or not exact_keys(log["response"], {"done_code"}):
         return False, f"C-{number}: E_LOG"
-    if log["request"]["ack"] != ack or log["response"]["done_code"] != done_code:
+    if log["request"]["ack"] != runtime["ack"] or log["response"]["done_code"] != runtime["done_code"]:
         return False, f"C-{number}: E_LOG"
-
-    if not exact_keys(answer["submission"], {"done_code"}):
-        return False, f"C-{number}: E_SUBMISSION"
-    if answer["submission"]["done_code"] != done_code:
-        return False, f"C-{number}: E_SUBMISSION"
 
     return True, f"C-{number}: OK"
 
@@ -133,6 +125,7 @@ def main() -> None:
     parser.add_argument("--task", type=int, choices=range(1, 4))
     parser.add_argument("--submission-dir", type=Path, default=Path("."))
     args = parser.parse_args()
+
     numbers = [args.task] if args.task else [1, 2, 3]
     results = [verify(number, args.submission_dir) for number in numbers]
     for _, message in results:

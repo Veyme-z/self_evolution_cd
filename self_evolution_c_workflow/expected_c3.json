@@ -15,6 +15,5 @@
       "request": {"ack": "ACK-C3-L2S6"},
       "response": {"done_code": "DONE-C3-X8F3"}
     }
-  ],
-  "submission": {"done_code": "DONE-C3-X8F3"}
+  ]
 }

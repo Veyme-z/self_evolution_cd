@@ -15,6 +15,5 @@
       "request": {"ack": "ACK-C2-B8Q1"},
       "response": {"done_code": "DONE-C2-M4V7"}
     }
-  ],
-  "submission": {"done_code": "DONE-C2-M4V7"}
+  ]
 }
